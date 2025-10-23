@@ -817,9 +817,8 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 			}
 			return -2;
 		}
-		dfu_client_free(client);
 		debug("Waiting for device to reconnect in DFU mode...\n");
-		cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 20000);
+		cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 5000);
 		if (client->mode != MODE_DFU || (client->flags & FLAG_QUIT)) {
 			mutex_unlock(&client->device_event_mutex);
 			if (!(client->flags & FLAG_QUIT)) {
@@ -1417,7 +1416,6 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 			}
 			return -2;
 		}
-		recovery_client_free(client);
 		debug("Waiting for device to reconnect in recovery mode...\n");
 		cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 60000);
 		if (client->mode != MODE_RECOVERY || (client->flags & FLAG_QUIT)) {
