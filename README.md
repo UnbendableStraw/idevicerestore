@@ -142,10 +142,7 @@ Only the prerequisites differ and they are described in this section.
   	make \
   	libtool \
   	autoconf \
-  	automake-wrapper \
-  	pkg-config \
-  	libcurl-devel \
-  	mingw-w64-x86_64-libzip
+  	automake-wrapper
   ```
   NOTE: You can use a different shell and different compiler according to your needs. Adapt the above command accordingly.
 
@@ -283,8 +280,8 @@ Please make sure your contribution adheres to:
 ## Links
 
 * Homepage: https://libimobiledevice.org/
-* Repository: https://github.com/libimobiledevice/idevicerestore.git
-* Repository (Mirror): https://git.libimobiledevice.org/idevicerestore.git
+* Repository: https://git.libimobiledevice.org/idevicerestore.git
+* Repository (Mirror): https://github.com/libimobiledevice/idevicerestore.git
 * Issue Tracker: https://github.com/libimobiledevice/idevicerestore/issues
 * Mailing List: https://lists.libimobiledevice.org/mailman/listinfo/libimobiledevice-devel
 * Twitter: https://twitter.com/libimobiledev
@@ -302,4 +299,4 @@ iPadOS, tvOS, watchOS, and macOS are trademarks of Apple Inc.
 This project is an independent software application and has not been
 authorized, sponsored, or otherwise approved by Apple Inc.
 
-README Updated on: 2024-10-22
+README Updated on: 2024-06-19
