@@ -171,6 +171,8 @@ const uint8_t lpol_file[22] = {
 };
 const uint32_t lpol_file_length = 22;
 
+static int idevicerestore_keep_pers = 0;
+
 static int load_version_data(struct idevicerestore_client_t* client)
 {
 	if (!client) {
@@ -812,7 +814,7 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 		plist_free(response);
 		free(uarp_buf);
 
-		if (client->flags & FLAG_KEEP_PERS) {
+		if (idevicerestore_keep_pers) {
 			write_file("Ace3Binary", ace3bin, ace3bin_size);
 		}
 
@@ -1905,7 +1907,7 @@ int main(int argc, char* argv[])
 			break;
 
 		case 'k':
-			client->flags |= FLAG_KEEP_PERS;
+			idevicerestore_keep_pers = 1;
 			break;
 
 #ifdef HAVE_LIMERA1N
@@ -2861,7 +2863,7 @@ int personalize_component(struct idevicerestore_client_t* client, const char *co
 	}
 	free(component_blob);
 
-	if (client->flags & FLAG_KEEP_PERS) {
+	if (idevicerestore_keep_pers) {
 		write_file(component_name, stitched_component, stitched_component_size);
 	}
 
