@@ -21,8 +21,6 @@
 #ifndef LOG_H
 #define LOG_H
 
-#include <plist/plist.h>
-
 enum loglevel {
 	LL_ERROR = 0,
 	LL_WARNING,
