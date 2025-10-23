@@ -1494,11 +1494,7 @@ int idevicerestore_start(struct idevicerestore_client_t* client)
 		if (client->mode != MODE_RESTORE || (client->flags & FLAG_QUIT)) {
 			mutex_unlock(&client->device_event_mutex);
 			error("ERROR: Device failed to enter restore mode.\n");
-			if (client->mode == MODE_UNKNOWN) {
-				error("Make sure that usbmuxd is running.\n");
-			} else if (client->mode == MODE_RECOVERY) {
-				error("Device reconnected in recovery mode, most likely image personalization failed.\n");
-			}
+			error("Please make sure that usbmuxd is running.\n");
 			return -1;
 		}
 		mutex_unlock(&client->device_event_mutex);
