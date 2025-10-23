@@ -1744,7 +1744,7 @@ static void plain_progress_func(struct progress_info_entry** progress_info, int 
 	}
 }
 
-static void tty_print(enum loglevel level, const char* fmt, va_list ap)
+static void tty_print(int level, const char* format, va_list varglist)
 {
 	switch (level) {
 		case 0:
@@ -1760,7 +1760,7 @@ static void tty_print(enum loglevel level, const char* fmt, va_list ap)
 			break;
 	}
 
-	cvfprintf(stdout, fmt, ap);
+	cvfprintf(stdout, format, varglist);
 
 	cprintf(COLOR_RESET);
 }
