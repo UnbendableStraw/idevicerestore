@@ -66,7 +66,7 @@ int fdr_connect(idevice_t device, fdr_type_t type, fdr_client_t* fdr)
 
 	*fdr = NULL;
 
-	logger(LL_DEBUG, "Connecting to FDR client at port %u\n", port);
+	debug("Connecting to FDR client at port %u\n", port);
 
 	for (i = 1; i <= attempts; i++) {
 		device_error = idevice_connect(device, port, &connection);
@@ -75,17 +75,17 @@ int fdr_connect(idevice_t device, fdr_type_t type, fdr_client_t* fdr)
 		}
 
 		if (i >= attempts) {
-			logger(LL_ERROR, "Unable to connect to FDR client (%d)\n", device_error);
+			error("ERROR: Unable to connect to FDR client (%d)\n", device_error);
 			return -1;
 		}
 
 		sleep(2);
-		logger(LL_DEBUG, "Retrying connection...\n");
+		debug("Retrying connection...\n");
 	}
 
 	fdr_client_t fdr_loc = calloc(1, sizeof(struct fdr_client));
 	if (!fdr_loc) {
-		logger(LL_ERROR, "Unable to allocate memory\n");
+		error("ERROR: Unable to allocate memory\n");
 		return -1;
 	}
 	fdr_loc->connection = connection;
@@ -138,7 +138,7 @@ int fdr_poll_and_handle_message(fdr_client_t fdr)
 	uint16_t cmd;
 
 	if (!fdr) {
-		logger(LL_ERROR, "Invalid FDR client\n");
+		error("ERROR: Invalid FDR client\n");
 		return -1;
 	}
 
@@ -149,32 +149,32 @@ int fdr_poll_and_handle_message(fdr_client_t fdr)
 	if (device_error == IDEVICE_E_SUCCESS && bytes != sizeof(cmd))
 #endif
 	{
-		logger(LL_DEBUG, "FDR %p timeout waiting for command\n", fdr);
+		debug("FDR %p timeout waiting for command\n", fdr);
 		return 0;
 	}
 	else if (device_error != IDEVICE_E_SUCCESS) {
 		if (fdr->connection) {
-			logger(LL_ERROR, "Unable to receive message from FDR %p (%d). %u/%u bytes\n", fdr, device_error, bytes, (uint32_t)sizeof(cmd));
+			error("ERROR: Unable to receive message from FDR %p (%d). %u/%u bytes\n", fdr, device_error, bytes, (uint32_t)sizeof(cmd));
 		}
 		return -1;
 	}
 
 	if (cmd == FDR_SYNC_MSG) {
-		logger(LL_DEBUG, "FDR %p got sync message\n", fdr);
+		debug("FDR %p got sync message\n", fdr);
 		return fdr_handle_sync_cmd(fdr);
 	}
 
 	if (cmd == FDR_PROXY_MSG) {
-		logger(LL_DEBUG, "FDR %p got proxy message\n", fdr);
+		debug("FDR %p got proxy message\n", fdr);
 		return fdr_handle_proxy_cmd(fdr);
 	}
 
 	if (cmd == FDR_PLIST_MSG) {
-		logger(LL_DEBUG, "FDR %p got plist message\n", fdr);
+		debug("FDR %p got plist message\n", fdr);
 		return fdr_handle_plist_cmd(fdr);
 	}
 
-	logger(LL_WARNING, "FDR %p received unknown packet %#x of size %u\n", fdr, cmd, bytes);
+	error("WARNING: FDR %p received unknown packet %#x of size %u\n", fdr, cmd, bytes);
 	return 0;
 }
 
@@ -184,14 +184,14 @@ void *fdr_listener_thread(void *cdata)
 	int res;
 
 	while (fdr && fdr->connection) {
-		logger(LL_DEBUG, "FDR %p waiting for message...\n", fdr);
+		debug("FDR %p waiting for message...\n", fdr);
 		res = fdr_poll_and_handle_message(fdr);
 		if (fdr->type == FDR_CTRL && res >= 0)
 			continue; // main thread should always retry
 		if (res != 0)
 			break;
 	}
-	logger(LL_DEBUG, "FDR %p terminating...\n", fdr);
+	debug("FDR %p terminating...\n", fdr);
 	fdr_free(fdr);
 	return (void *)(intptr_t)res;
 }
@@ -204,26 +204,26 @@ static int fdr_receive_plist(fdr_client_t fdr, plist_t* data)
 
 	device_error = idevice_connection_receive(fdr->connection, (char*)&len, sizeof(len), &bytes);
 	if (device_error != IDEVICE_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to receive packet length from FDR (%d)\n", device_error);
+		error("ERROR: Unable to receive packet length from FDR (%d)\n", device_error);
 		return -1;
 	}
 
 	buf = calloc(1, len);
 	if (!buf) {
-		logger(LL_ERROR, "Unable to allocate memory for FDR receive buffer\n");
+		error("ERROR: Unable to allocate memory for FDR receive buffer\n");
 		return -1;
 	}
 
 	device_error = idevice_connection_receive(fdr->connection, buf, len, &bytes);
 	if (device_error != IDEVICE_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to receive data from FDR\n");
+		error("ERROR: Unable to receive data from FDR\n");
 		free(buf);
 		return -1;
 	}
 	plist_from_bin(buf, bytes, data);
 	free(buf);
 
-	logger(LL_DEBUG, "FDR Received %d bytes\n", bytes);
+	debug("FDR Received %d bytes\n", bytes);
 
 	return 0;
 }
@@ -241,11 +241,12 @@ static int fdr_send_plist(fdr_client_t fdr, plist_t data)
 	if (!buf)
 		return -1;
 
-	logger(LL_DEBUG, "FDR sending %d bytes:\n", len);
-	logger_dump_plist(LL_DEBUG, data, 1);
+	debug("FDR sending %d bytes:\n", len);
+	if (idevicerestore_debug)
+		debug_plist(data);
 	device_error = idevice_connection_send(fdr->connection, (char *)&len, sizeof(len), &bytes);
 	if (device_error != IDEVICE_E_SUCCESS || bytes != sizeof(len)) {
-		logger(LL_ERROR, "FDR unable to send data length. (%d) Sent %u of %u bytes.\n",
+		error("ERROR: FDR unable to send data length. (%d) Sent %u of %u bytes.\n",
 		      device_error, bytes, (uint32_t)sizeof(len));
 		free(buf);
 		return -1;
@@ -253,12 +254,12 @@ static int fdr_send_plist(fdr_client_t fdr, plist_t data)
 	device_error = idevice_connection_send(fdr->connection, buf, len, &bytes);
 	free(buf);
 	if (device_error != IDEVICE_E_SUCCESS || bytes != len) {
-		logger(LL_ERROR, "FDR unable to send data (%d). Sent %u of %u bytes.\n",
+		error("ERROR: FDR unable to send data (%d). Sent %u of %u bytes.\n",
 		      device_error, bytes, len);
 		return -1;
 	}
 
-	logger(LL_DEBUG, "FDR Sent %d bytes\n", bytes);
+	debug("FDR Sent %d bytes\n", bytes);
 	return 0;
 }
 
@@ -269,18 +270,18 @@ static int fdr_ctrl_handshake(fdr_client_t fdr)
 	plist_t dict, node;
 	int res;
 
-	logger(LL_DEBUG, "About to do ctrl handshake\n");
+	debug("About to do ctrl handshake\n");
 
 	ctrlprotoversion = 2;
 
 	device_error = idevice_connection_send(fdr->connection, CTRLCMD, len, &bytes);
 	if (device_error != IDEVICE_E_SUCCESS || bytes != len) {
-		logger(LL_DEBUG, "Hmm... looks like the device doesn't like the newer protocol, using the old one\n");
+		debug("Hmm... looks like the device doesn't like the newer protocol, using the old one\n");
 		ctrlprotoversion = 1;
 		len = sizeof(HELLOCTRLCMD);
 		device_error = idevice_connection_send(fdr->connection, HELLOCTRLCMD, len, &bytes);
 		if (device_error != IDEVICE_E_SUCCESS || bytes != len) {
-			logger(LL_ERROR, "FDR unable to send BeginCtrl. Sent %u of %u bytes.\n", bytes, len);
+			error("ERROR: FDR unable to send BeginCtrl. Sent %u of %u bytes.\n", bytes, len);
 			return -1;
 		}
 	}
@@ -292,20 +293,21 @@ static int fdr_ctrl_handshake(fdr_client_t fdr)
 		res = fdr_send_plist(fdr, dict);
 		plist_free(dict);
 		if (res) {
-			logger(LL_ERROR, "FDR could not send Begin command.\n");
+			error("ERROR: FDR could not send Begin command.\n");
 			return -1;
 		}
 
 		if (fdr_receive_plist(fdr, &dict)) {
-			logger(LL_ERROR, "FDR did not get Begin command reply.\n");
+			error("ERROR: FDR did not get Begin command reply.\n");
 			return -1;
 		}
-		logger_dump_plist(LL_DEBUG, dict, 1);
+		if (idevicerestore_debug)
+			debug_plist(dict);
 		node = plist_dict_get_item(dict, "ConnPort");
 		if (node && plist_get_node_type(node) == PLIST_UINT) {
 			plist_get_uint_val(node, &conn_port);
 		} else {
-			logger(LL_ERROR, "Could not get FDR ConnPort value\n");
+			error("ERROR: Could not get FDR ConnPort value\n");
 			return -1;
 		}
 
@@ -319,26 +321,26 @@ static int fdr_ctrl_handshake(fdr_client_t fdr)
 		bytes = 0;
 		device_error = idevice_connection_receive(fdr->connection, buf, 10, &bytes);
 		if (device_error != IDEVICE_E_SUCCESS) {
-			logger(LL_ERROR, "Could not receive reply to HelloCtrl command\n");
+			error("ERROR: Could not receive reply to HelloCtrl command\n");
 			return -1;
 		}
 		if (memcmp(buf, "HelloCtrl", 10) != 0) {
 			buf[9] = '\0';
-			logger(LL_ERROR, "Did not receive HelloCtrl as reply, but %s\n", buf);
+			error("ERROR: Did not receive HelloCtrl as reply, but %s\n", buf);
 			return -1;
 		}
 
 		bytes = 0;
 		device_error = idevice_connection_receive(fdr->connection, (char*)&cport, 2, &bytes);
 		if (device_error != IDEVICE_E_SUCCESS) {
-			logger(LL_ERROR, "Failed to receive conn port\n");
+			error("ERROR: Failed to receive conn port\n");
 			return -1;
 		}
 
 		conn_port = le16toh(cport);
 	}
 
-	logger(LL_DEBUG, "Ctrl handshake done (ConnPort = %" PRIu64 ")\n", (uint64_t)conn_port);
+	debug("Ctrl handshake done (ConnPort = %" PRIu64 ")\n", (uint64_t)conn_port);
 
 	return 0;
 }
@@ -351,13 +353,13 @@ static int fdr_sync_handshake(fdr_client_t fdr)
 
 	device_error = idevice_connection_send(fdr->connection, HELLOCMD, len, &bytes);
 	if (device_error != IDEVICE_E_SUCCESS || bytes != len) {
-		logger(LL_ERROR, "FDR unable to send Hello. Sent %u of %u bytes.\n", bytes, len);
+		error("ERROR: FDR unable to send Hello. Sent %u of %u bytes.\n", bytes, len);
 		return -1;
 	}
 
 	if (ctrlprotoversion == 2) {
 		if (fdr_receive_plist(fdr, &reply)) {
-			logger(LL_ERROR, "FDR did not get HelloConn reply.\n");
+			error("ERROR: FDR did not get HelloConn reply.\n");
 			return -1;
 		}
 		char* identifier = NULL;
@@ -380,13 +382,13 @@ static int fdr_sync_handshake(fdr_client_t fdr)
 			if (identifier) {
 				free(identifier);
 			}
-			logger(LL_ERROR, "Did not receive HelloConn reply...\n");
+			error("ERROR: Did not receive HelloConn reply...\n");
 			return -1;
 		}
 		free(cmd);
 
 		if (identifier) {
-			logger(LL_DEBUG, "Got device identifier %s\n", identifier);
+			debug("Got device identifier %s\n", identifier);
 			free(identifier);
 		}
 
@@ -396,12 +398,12 @@ static int fdr_sync_handshake(fdr_client_t fdr)
 		bytes = 0;
 		device_error = idevice_connection_receive(fdr->connection, buf, 10, &bytes);
 		if (device_error != IDEVICE_E_SUCCESS) {
-			logger(LL_ERROR, "Could not receive reply to HelloConn command\n");
+			error("ERROR: Could not receive reply to HelloConn command\n");
 			return -1;
 		}
 		if (memcmp(buf, "HelloConn", 10) != 0) {
 			buf[9] = '\0';
-			logger(LL_ERROR, "Did not receive HelloConn as reply, but %s\n", buf);
+			error("ERROR: Did not receive HelloConn as reply, but %s\n", buf);
 			return -1;
 		}
 	}
@@ -420,18 +422,18 @@ static int fdr_handle_sync_cmd(fdr_client_t fdr_ctrl)
 
 	device_error = idevice_connection_receive(fdr_ctrl->connection, buf, sizeof(buf), &bytes);
 	if (device_error != IDEVICE_E_SUCCESS || bytes != 2) {
-		logger(LL_ERROR, "Unexpected data from FDR\n");
+		error("ERROR: Unexpected data from FDR\n");
 		return -1;
 	}
 	/* Open a new connection and wait for messages on it */
 	if (fdr_connect(fdr_ctrl->device, FDR_CONN, &fdr)) {
-		logger(LL_ERROR, "Failed to connect to FDR port\n");
+		error("ERROR: Failed to connect to FDR port\n");
 		return -1;
 	}
-	logger(LL_DEBUG, "FDR connected in reply to sync message, starting command thread\n");
+	debug("FDR connected in reply to sync message, starting command thread\n");
 	res = thread_new(&fdr_thread, fdr_listener_thread, fdr);
 	if(res) {
-		logger(LL_ERROR, "Failed to start FDR command thread\n");
+		error("ERROR: Failed to start FDR command thread\n");
 		fdr_free(fdr);
 	}
 	return res;
@@ -443,12 +445,12 @@ static int fdr_handle_plist_cmd(fdr_client_t fdr)
 	plist_t dict;
 
 	if (fdr_receive_plist(fdr, &dict)) {
-		logger(LL_ERROR, "FDR %p could not receive plist command.\n", fdr);
+		error("ERROR: FDR %p could not receive plist command.\n", fdr);
 		return -1;
 	}
 	plist_t node = plist_dict_get_item(dict, "Command");
 	if (!node || (plist_get_node_type(node) != PLIST_STRING)) {
-		logger(LL_ERROR, "FDR %p Could not find Command in plist command\n", fdr);
+		error("ERROR: FDR %p Could not find Command in plist command\n", fdr);
 		plist_free(dict);
 		return -1;
 	}
@@ -457,7 +459,7 @@ static int fdr_handle_plist_cmd(fdr_client_t fdr)
 	plist_free(dict);
 
 	if (!command) {
-		logger(LL_INFO, "FDR %p received empty plist command\n", fdr);
+		info("FDR %p received empty plist command\n", fdr);
 		return -1;
 	}
 
@@ -467,12 +469,12 @@ static int fdr_handle_plist_cmd(fdr_client_t fdr)
 		res = fdr_send_plist(fdr, dict);
 		plist_free(dict);
 		if (res) {
-			logger(LL_ERROR, "FDR %p could not send Ping command reply.\n", fdr);
+			error("ERROR: FDR %p could not send Ping command reply.\n", fdr);
 			free(command);
 			return -1;
 		}
 	} else {
-		logger(LL_WARNING, "FDR %p received unknown plist command: %s\n", fdr, command);
+ 		error("WARNING: FDR %p received unknown plist command: %s\n", fdr, command);
 		free(command);
 		return -1;
 	}
@@ -493,17 +495,17 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 
 	buf = malloc(bufsize);
 	if (!buf) {
-		logger(LL_ERROR, "%s: malloc failed\n", __func__);
+		error("ERROR: %s: malloc failed\n", __func__);
 		return -1;
 	}
 
 	device_error = idevice_connection_receive(fdr->connection, buf, bufsize, &bytes);
 	if (device_error != IDEVICE_E_SUCCESS) {
 		free(buf);
-		logger(LL_ERROR, "FDR %p failed to read data for proxy command\n", fdr);
+		error("ERROR: FDR %p failed to read data for proxy command\n", fdr);
 		return -1;
 	}
-	logger(LL_DEBUG, "Got proxy command with %u bytes\n", bytes);
+	debug("Got proxy command with %u bytes\n", bytes);
 
 	/* Just return success here unconditionally because we don't know
 	 * anything else and we will eventually abort on failure anyway */
@@ -511,13 +513,13 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 	device_error = idevice_connection_send(fdr->connection, (char *)&ack, sizeof(ack), &sent);
 	if (device_error != IDEVICE_E_SUCCESS || sent != sizeof(ack)) {
 		free(buf);
-		logger(LL_ERROR, "FDR %p unable to send ack. Sent %u of %u bytes.\n",
+		error("ERROR: FDR %p unable to send ack. Sent %u of %u bytes.\n",
 		      fdr, sent, (uint32_t)sizeof(ack));
 		return -1;
 	}
 
 	if (bytes < 3) {
-		logger(LL_DEBUG, "FDR %p proxy command data too short, retrying\n", fdr);
+		debug("FDR %p proxy command data too short, retrying\n", fdr);
 		return fdr_poll_and_handle_message(fdr);
 	}
 
@@ -525,7 +527,7 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 	device_error = idevice_connection_send(fdr->connection, buf, bytes, &sent);
 	if (device_error != IDEVICE_E_SUCCESS || sent != bytes) {
 		free(buf);
-		logger(LL_ERROR, "FDR %p unable to send data. Sent %u of %u bytes.\n",
+		error("ERROR: FDR %p unable to send data. Sent %u of %u bytes.\n",
 		      fdr, sent, bytes);
 		return -1;
 	}
@@ -537,7 +539,7 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 		port = be16toh(*p);
 		buf[bytes - 2] = '\0';
 		host = strdup(&buf[3]);
-		logger(LL_DEBUG, "FDR %p Proxy connect request to %s:%u\n", fdr, host, port);
+		debug("FDR %p Proxy connect request to %s:%u\n", fdr, host, port);
 	}
 
 	if (!host || !buf[2]) {
@@ -551,7 +553,7 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 	free(host);
 	if (sockfd < 0) {
 		free(buf);
-		logger(LL_ERROR, "Failed to connect socket: %s\n", strerror(errno));
+		error("ERROR: Failed to connect socket: %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -565,16 +567,16 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 		if (device_error == IDEVICE_E_SUCCESS && !bytes)
 #endif
 		{
-			//logger(LL_DEBUG, "Timeout waiting for proxy payload. %p\n", fdr);
+			//debug("WARNING: Timeout waiting for proxy payload. %p\n", fdr);
 		}
 		else if (device_error != IDEVICE_E_SUCCESS) {
-			logger(LL_ERROR, "FDR %p Unable to receive proxy payload (%d)\n", fdr, device_error);
+			error("ERROR: FDR %p Unable to receive proxy payload (%d)\n", fdr, device_error);
 			res = -1;
 			break;
 		}
 		if (bytes) {
-			logger(LL_DEBUG, "FDR %p got payload of %u bytes, now trying to proxy it\n", fdr, bytes);
-			logger(LL_DEBUG, "Sending %u bytes of data\n", bytes);
+			debug("FDR %p got payload of %u bytes, now trying to proxy it\n", fdr, bytes);
+			debug("Sending %u bytes of data\n", bytes);
 			sent = 0;
 			while (sent < bytes) {
 				int s = socket_send(sockfd, buf + sent, bytes - sent);
@@ -584,7 +586,7 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 				sent += s;
 			}
 			if (sent != bytes) {
-				logger(LL_ERROR, "Sending proxy payload failed: %s. Sent %u of %u bytes. \n", strerror(errno), sent, bytes);
+				error("ERROR: Sending proxy payload failed: %s. Sent %u of %u bytes. \n", strerror(errno), sent, bytes);
 				socket_close(sockfd);
 				res = -1;
 				break;
@@ -597,14 +599,14 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 			res = 1;
 			break;
 		} else if (bytes_ret < 0) {
-			logger(LL_ERROR, "FDR %p receiving proxy payload failed: %d (%s)\n",
+			error("ERROR: FDR %p receiving proxy payload failed: %d (%s)\n",
 			      fdr, bytes_ret, strerror(-bytes_ret));
 			break;
 		}
 
 		bytes = bytes_ret;
 		if (bytes) {
-			logger(LL_DEBUG, "FDR %p Received %u bytes reply data,%s sending to device\n",
+			debug("FDR %p Received %u bytes reply data,%s sending to device\n",
 			      fdr, bytes, (bytes ? "" : " not"));
 
 			sent = 0;
@@ -617,7 +619,7 @@ static int fdr_handle_proxy_cmd(fdr_client_t fdr)
 				sent += s;
 			}
 			if (device_error != IDEVICE_E_SUCCESS || bytes != sent) {
-				logger(LL_ERROR, "FDR %p unable to send data (%d). Sent %u of %u bytes.\n", fdr, device_error, sent, bytes);
+				error("ERROR: FDR %p unable to send data (%d). Sent %u of %u bytes.\n", fdr, device_error, sent, bytes);
 				res = -1;
 				break;
 			}

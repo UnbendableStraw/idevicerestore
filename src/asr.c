@@ -63,7 +63,7 @@ int asr_open_with_timeout(idevice_t device, asr_client_t* asr, uint16_t port)
 	if (port == 0) {
 		port = ASR_DEFAULT_PORT;
 	}
-	logger(LL_VERBOSE, "Connecting to ASR on port %u\n", port);
+	debug("Connecting to ASR on port %u\n", port);
 
 	for (i = 1; i <= attempts; i++) {
 		device_error = idevice_connect(device, port, &connection);
@@ -72,12 +72,12 @@ int asr_open_with_timeout(idevice_t device, asr_client_t* asr, uint16_t port)
 		}
 
 		if (i >= attempts) {
-			logger(LL_ERROR, "Unable to connect to ASR client\n");
+			error("ERROR: Unable to connect to ASR client\n");
 			return -1;
 		}
 
 		sleep(2);
-		logger(LL_VERBOSE, "Retrying connection...\n");
+		debug("Retrying connection...\n");
 	}
 
 	asr_client_t asr_loc = (asr_client_t)malloc(sizeof(struct asr_client));
@@ -88,7 +88,7 @@ int asr_open_with_timeout(idevice_t device, asr_client_t* asr, uint16_t port)
 	plist_t data = NULL;
 	asr_loc->checksum_chunks = 0;
 	if (asr_receive(asr_loc, &data) < 0) {
-		logger(LL_ERROR, "Unable to receive data from ASR\n");
+		error("ERROR: Unable to receive data from ASR\n");
 		asr_free(asr_loc);
 		plist_free(data);
 		return -1;
@@ -99,8 +99,8 @@ int asr_open_with_timeout(idevice_t device, asr_client_t* asr, uint16_t port)
 		char* strval = NULL;
 		plist_get_string_val(node, &strval);
 		if (strval && (strcmp(strval, "Initiate") != 0)) {
-			logger(LL_ERROR, "Unexpected ASR plist received\n");
-			logger_dump_plist(LL_VERBOSE, data, 1);
+			error("ERROR: unexpected ASR plist received:\n");
+			debug_plist(data);
 			plist_free(data);
 			asr_free(asr_loc);
 			return -1;
@@ -138,13 +138,13 @@ int asr_receive(asr_client_t asr, plist_t* data)
 
 	buffer = (char*)malloc(ASR_BUFFER_SIZE);
 	if (buffer == NULL) {
-		logger(LL_ERROR, "Unable to allocate memory for ASR receive buffer\n");
+		error("ERROR: Unable to allocate memory for ASR receive buffer\n");
 		return -1;
 	}
 
 	device_error = idevice_connection_receive(asr->connection, buffer, ASR_BUFFER_SIZE, &size);
 	if (device_error != IDEVICE_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to receive data from ASR\n");
+		error("ERROR: Unable to receive data from ASR\n");
 		free(buffer);
 		return -1;
 	}
@@ -152,8 +152,9 @@ int asr_receive(asr_client_t asr, plist_t* data)
 
 	*data = request;
 
-	logger(LL_DEBUG, "Received %d bytes:\n", size);
-	logger_dump_plist(LL_DEBUG, request, 1);
+	debug("Received %d bytes:\n", size);
+	if (idevicerestore_debug)
+		debug_plist(request);
 	free(buffer);
 	return 0;
 }
@@ -165,7 +166,7 @@ int asr_send(asr_client_t asr, plist_t data)
 
 	plist_to_xml(data, &buffer, &size);
 	if (asr_send_buffer(asr, buffer, size) < 0) {
-		logger(LL_ERROR, "Unable to send plist to ASR\n");
+		error("ERROR: Unable to send plist to ASR\n");
 		free(buffer);
 		return -1;
 	}
@@ -182,7 +183,7 @@ int asr_send_buffer(asr_client_t asr, const char* data, uint32_t size)
 
 	device_error = idevice_connection_send(asr->connection, data, size, &bytes);
 	if (device_error != IDEVICE_E_SUCCESS || bytes != size) {
-		logger(LL_ERROR, "Unable to send data to ASR. Sent %u of %u bytes.\n", bytes, size);
+		error("ERROR: Unable to send data to ASR. Sent %u of %u bytes.\n", bytes, size);
 		return -1;
 	}
 
@@ -239,19 +240,19 @@ int asr_perform_validation(asr_client_t asr, ipsw_file_handle_t file)
 
 	// Expected by device after every initiate
 	if (asr_send_validation_packet_info(asr, length) < 0) {
-		logger(LL_ERROR, "Unable to send validation packet info to ASR\n");
+		error("ERROR: Unable to send validation packet info to ASR\n");
 		return -1;
 	}
 
 	while (1) {
 		if (asr_receive(asr, &packet) < 0) {
-			logger(LL_ERROR, "Unable to receive validation packet\n");
+			error("ERROR: Unable to receive validation packet\n");
 			return -1;
 		}
 
 		if (packet == NULL) {
 			if (attempts < 5) {
-				logger(LL_INFO, "Retrying to receive validation packet... %d\n", attempts);
+				info("Retrying to receive validation packet... %d\n", attempts);
 				attempts++;
 				sleep(1);
 				continue;
@@ -262,7 +263,7 @@ int asr_perform_validation(asr_client_t asr, ipsw_file_handle_t file)
 
 		node = plist_dict_get_item(packet, "Command");
 		if (!node || plist_get_node_type(node) != PLIST_STRING) {
-			logger(LL_ERROR, "Unable to find command node in validation request\n");
+			error("ERROR: Unable to find command node in validation request\n");
 			return -1;
 		}
 		plist_get_string_val(node, &command);
@@ -278,7 +279,7 @@ int asr_perform_validation(asr_client_t asr, ipsw_file_handle_t file)
 
 			// Expected by device after every Initiate
 			if (asr_send_validation_packet_info(asr, length) < 0) {
-				logger(LL_ERROR, "Unable to send validation packet info to ASR\n");
+				error("ERROR: Unable to send validation packet info to ASR\n");
 				return -1;
 			}
 
@@ -296,7 +297,7 @@ int asr_perform_validation(asr_client_t asr, ipsw_file_handle_t file)
 			break;
 
 		} else {
-			logger(LL_ERROR, "Unknown command received from ASR\n");
+			error("ERROR: Unknown command received from ASR\n");
 			plist_free(packet);
 			return -1;
 		}
@@ -315,38 +316,38 @@ int asr_handle_oob_data_request(asr_client_t asr, plist_t packet, ipsw_file_hand
 
 	oob_length_node = plist_dict_get_item(packet, "OOB Length");
 	if (!oob_length_node || PLIST_UINT != plist_get_node_type(oob_length_node)) {
-		logger(LL_ERROR, "Unable to find OOB data length\n");
+		error("ERROR: Unable to find OOB data length\n");
 		return -1;
 	}
 	plist_get_uint_val(oob_length_node, &oob_length);
 
 	oob_offset_node = plist_dict_get_item(packet, "OOB Offset");
 	if (!oob_offset_node || PLIST_UINT != plist_get_node_type(oob_offset_node)) {
-		logger(LL_ERROR, "Unable to find OOB data offset\n");
+		error("ERROR: Unable to find OOB data offset\n");
 		return -1;
 	}
 	plist_get_uint_val(oob_offset_node, &oob_offset);
 
 	oob_data = (char*) malloc(oob_length);
 	if (oob_data == NULL) {
-		logger(LL_ERROR, "Out of memory\n");
+		error("ERROR: Out of memory\n");
 		return -1;
 	}
 
 	if (ipsw_file_seek(file, oob_offset, SEEK_SET) < 0) {
-		logger(LL_ERROR, "Unable to seek to OOB offset 0x%" PRIx64 "\n", oob_offset);
+		error("ERROR: Unable to seek to OOB offset 0x%" PRIx64 "\n", oob_offset);
 		free(oob_data);
 		return -1;
 	}
 	int64_t ir = ipsw_file_read(file, oob_data, oob_length);
 	if (ir != oob_length) {
-		logger(LL_ERROR, "Unable to read OOB data from filesystem offset 0x%" PRIx64 ", oob_length %" PRIu64 ", read returned %" PRIi64"\n", oob_offset, oob_length, ir);
+		error("ERROR: Unable to read OOB data from filesystem offset 0x%" PRIx64 ", oob_length %" PRIu64 ", read returned %" PRIi64"\n", oob_offset, oob_length, ir);
 		free(oob_data);
 		return -1;
 	}
 
 	if (asr_send_buffer(asr, oob_data, oob_length) < 0) {
-		logger(LL_ERROR, "Unable to send OOB data to ASR\n");
+		error("ERROR: Unable to send OOB data to ASR\n");
 		free(oob_data);
 		return -1;
 	}
@@ -376,7 +377,7 @@ int asr_send_payload(asr_client_t asr, ipsw_file_handle_t file)
 		}
 
 		if (ipsw_file_read(file, data, size) != (int64_t)size) {
-			logger(LL_ERROR, "Error reading filesystem\n");
+			error("Error reading filesystem\n");
 			retry--;
 			continue;
 		}
@@ -387,7 +388,7 @@ int asr_send_payload(asr_client_t asr, ipsw_file_handle_t file)
 			sendsize += 20;
 		}
 		if (asr_send_buffer(asr, data, sendsize) < 0) {
-			logger(LL_ERROR, "Unable to send filesystem payload chunk, retrying...\n");
+			error("Unable to send filesystem payload chunk, retrying...\n");
 			retry--;
 			continue;
 		}

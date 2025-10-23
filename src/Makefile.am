@@ -29,7 +29,6 @@ bin_PROGRAMS = idevicerestore
 
 idevicerestore_SOURCES = \
 	idevicerestore.c idevicerestore.h \
-	log.c log.h \
 	endianness.h \
 	common.c common.h \
 	fls.c fls.h \

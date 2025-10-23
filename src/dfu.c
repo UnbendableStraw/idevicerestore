@@ -36,7 +36,7 @@
 
 static int dfu_progress_callback(irecv_client_t client, const irecv_event_t* event) {
 	if (event->type == IRECV_PROGRESS) {
-		set_progress('DFUP', (double)event->progress/100.0);
+		print_progress_bar(event->progress);
 	}
 	return 0;
 }
@@ -49,26 +49,24 @@ int dfu_client_new(struct idevicerestore_client_t* client)
 		client->dfu = (struct dfu_client_t*)malloc(sizeof(struct dfu_client_t));
 		memset(client->dfu, 0, sizeof(struct dfu_client_t));
 		if (client->dfu == NULL) {
-			logger(LL_ERROR, "Out of memory\n");
+			error("ERROR: Out of memory\n");
 			return -1;
 		}
 	}
 
 	if (irecv_open_with_ecid_and_attempts(&dfu, client->ecid, 10) != IRECV_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to connect to device in DFU mode\n");
+		error("ERROR: Unable to connect to device in DFU mode\n");
 		return -1;
 	}
 
 	irecv_event_subscribe(dfu, IRECV_PROGRESS, &dfu_progress_callback, NULL);
 	client->dfu->client = dfu;
-	register_progress('DFUP', "Uploading");
 	return 0;
 }
 
 void dfu_client_free(struct idevicerestore_client_t* client)
 {
 	if(client != NULL) {
-		finalize_progress('DFUP');
 		if (client->dfu != NULL) {
 			if(client->dfu->client != NULL) {
 				irecv_close(client->dfu->client);
@@ -109,11 +107,11 @@ int dfu_send_buffer_with_options(struct idevicerestore_client_t* client, unsigne
 {
 	irecv_error_t err = 0;
 
-	logger(LL_INFO, "Sending data (%d bytes)...\n", size);
+	info("Sending data (%d bytes)...\n", size);
 
 	err = irecv_send_buffer(client->dfu->client, buffer, size, irecv_options);
 	if (err != IRECV_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to send data: %s\n", irecv_strerror(err));
+		error("ERROR: Unable to send data: %s\n", irecv_strerror(err));
 		return -1;
 	}
 
@@ -146,19 +144,19 @@ int dfu_send_component(struct idevicerestore_client_t* client, plist_t build_ide
 	} else {
 		if (tss) {
 			if (tss_response_get_path_by_entry(tss, component, &path) < 0) {
-				logger(LL_DEBUG, "No path for component %s in TSS, will fetch from build_identity\n", component);
+				debug("NOTE: No path for component %s in TSS, will fetch from build_identity\n", component);
 			}
 		}
 		if (!path) {
 			if (build_identity_get_component_path(build_identity, component, &path) < 0) {
-				logger(LL_ERROR, "Unable to get path for component '%s'\n", component);
+				error("ERROR: Unable to get path for component '%s'\n", component);
 				free(path);
 				return -1;
 			}
 		}
 
 		if (extract_component(client->ipsw, path, &component_data, &component_size) < 0) {
-			logger(LL_ERROR, "Unable to extract component: %s\n", component);
+			error("ERROR: Unable to extract component: %s\n", component);
 			free(path);
 			return -1;
 		}
@@ -170,7 +168,7 @@ int dfu_send_component(struct idevicerestore_client_t* client, plist_t build_ide
 	uint32_t size = 0;
 
 	if (personalize_component(client, component, component_data, component_size, tss, &data, &size) < 0) {
-		logger(LL_ERROR, "Unable to get personalized component: %s\n", component);
+		error("ERROR: Unable to get personalized component: %s\n", component);
 		free(component_data);
 		return -1;
 	}
@@ -181,14 +179,14 @@ int dfu_send_component(struct idevicerestore_client_t* client, plist_t build_ide
 		unsigned char* ticket = NULL;
 		unsigned int tsize = 0;
 		if (tss_response_get_ap_ticket(client->tss, &ticket, &tsize) < 0) {
-			logger(LL_ERROR, "Unable to get ApTicket from TSS request\n");
+			error("ERROR: Unable to get ApTicket from TSS request\n");
 			return -1;
 		}
 		uint32_t fillsize = 0;
 		if (tsize % 64 != 0) {
 			fillsize = ((tsize / 64) + 1) * 64;
 		}
-		logger(LL_DEBUG, "ticket size = %d\nfillsize = %d\n", tsize, fillsize);
+		debug("ticket size = %d\nfillsize = %d\n", tsize, fillsize);
 		unsigned char* newdata = (unsigned char*)malloc(size + fillsize);
 		memcpy(newdata, ticket, tsize);
 		memset(newdata + tsize, '\xFF', fillsize - tsize);
@@ -198,11 +196,11 @@ int dfu_send_component(struct idevicerestore_client_t* client, plist_t build_ide
 		size += fillsize;
 	}
 
-	logger(LL_INFO, "Sending %s (%d bytes)...\n", component, size);
+	info("Sending %s (%d bytes)...\n", component, size);
 
 	irecv_error_t err = irecv_send_buffer(client->dfu->client, data, size, IRECV_SEND_OPT_DFU_NOTIFY_FINISH);
 	if (err != IRECV_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to send %s component: %s\n", component, irecv_strerror(err));
+		error("ERROR: Unable to send %s component: %s\n", component, irecv_strerror(err));
 		free(data);
 		return -1;
 	}
@@ -368,14 +366,14 @@ int dfu_send_component_and_command(struct idevicerestore_client_t* client, plist
 	irecv_error_t dfu_error = IRECV_E_SUCCESS;
 
 	if (dfu_send_component(client, build_identity, component) < 0) {
-		logger(LL_ERROR, "Unable to send %s to device.\n", component);
+		error("ERROR: Unable to send %s to device.\n", component);
 		return -1;
 	}
 
-	logger(LL_INFO, "INFO: executing command: %s\n", command);
+	info("INFO: executing command: %s\n", command);
 	dfu_error = irecv_send_command(client->dfu->client, command);
 	if (dfu_error != IRECV_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to execute %s\n", command);
+		error("ERROR: Unable to execute %s\n", command);
 		return -1;
 	}
 
@@ -386,10 +384,10 @@ int dfu_send_command(struct idevicerestore_client_t* client, const char* command
 {
 	irecv_error_t dfu_error = IRECV_E_SUCCESS;
 
-	logger(LL_INFO, "INFO: executing command: %s\n", command);
+	info("INFO: executing command: %s\n", command);
 	dfu_error = irecv_send_command(client->dfu->client, command);
 	if (dfu_error != IRECV_E_SUCCESS) {
-		logger(LL_ERROR, "Unable to execute %s\n", command);
+		error("ERROR: Unable to execute %s\n", command);
 		return -1;
 	}
 
@@ -400,7 +398,7 @@ int dfu_send_iboot_stage1_components(struct idevicerestore_client_t* client, pli
 {
 	plist_t manifest_node = plist_dict_get_item(build_identity, "Manifest");
 	if (!manifest_node || plist_get_node_type(manifest_node) != PLIST_DICT) {
-		logger(LL_ERROR, "Unable to find manifest node\n");
+		error("ERROR: Unable to find manifest node\n");
 		return -1;
 	}
 
@@ -424,12 +422,12 @@ int dfu_send_iboot_stage1_components(struct idevicerestore_client_t* client, pli
 			uint8_t b = 0;
 			plist_get_bool_val(iboot_node, &b);
 			if (b) {
-				logger(LL_DEBUG, "%s is loaded by iBoot Stage 1 and iBoot.\n", key);
+				debug("DEBUG: %s is loaded by iBoot Stage 1 and iBoot.\n", key);
 			} else {
-				logger(LL_DEBUG, "%s is loaded by iBoot Stage 1 but not iBoot...\n", key);
+				debug("DEBUG: %s is loaded by iBoot Stage 1 but not iBoot...\n", key);
 			}
 			if (dfu_send_component_and_command(client, build_identity, key, "firmware") < 0) {
-				logger(LL_ERROR, "Unable to send component '%s' to device.\n", key);
+				error("ERROR: Unable to send component '%s' to device.\n", key);
 				err++;
 			}
 		}
@@ -445,14 +443,14 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 	int mode = 0;
 
 	if (dfu_client_new(client) < 0) {
-		logger(LL_ERROR, "Unable to connect to DFU device\n");
+		error("ERROR: Unable to connect to DFU device\n");
 		return -1;
 	}
 
 	irecv_get_mode(client->dfu->client, &mode);
 
 	if (mode != IRECV_K_DFU_MODE) {
-		logger(LL_NOTICE, "device is not in DFU mode, assuming recovery mode.\n");
+		info("NOTE: device is not in DFU mode, assuming recovery mode.\n");
 		client->mode = MODE_RECOVERY;
 		return 0;
 	}
@@ -460,7 +458,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 	mutex_lock(&client->device_event_mutex);
 
 	if (dfu_send_component(client, build_identity, "iBSS") < 0) {
-		logger(LL_ERROR, "Unable to send iBSS to device\n");
+		error("ERROR: Unable to send iBSS to device\n");
 		irecv_close(client->dfu->client);
 		client->dfu->client = NULL;
 		return -1;
@@ -469,21 +467,21 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 	if (client->build_major > 8) {
 		/* reconnect */
-		logger(LL_DEBUG, "Waiting for device to disconnect...\n");
+		debug("Waiting for device to disconnect...\n");
 		cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 10000);
 		if (client->mode != MODE_UNKNOWN || (client->flags & FLAG_QUIT)) {
 			mutex_unlock(&client->device_event_mutex);
 			if (!(client->flags & FLAG_QUIT)) {
-				logger(LL_ERROR, "Device did not disconnect. Possibly invalid iBSS. Reset device and try again.\n");
+				error("ERROR: Device did not disconnect. Possibly invalid iBSS. Reset device and try again.\n");
 			}
 			return -1;
 		}
-		logger(LL_DEBUG, "Waiting for device to reconnect...\n");
+		debug("Waiting for device to reconnect...\n");
 		cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 10000);
 		if ((client->mode != MODE_DFU && client->mode != MODE_RECOVERY) || (client->flags & FLAG_QUIT)) {
 			mutex_unlock(&client->device_event_mutex);
 			if (!(client->flags & FLAG_QUIT)) {
-				logger(LL_ERROR, "Device did not reconnect in DFU or recovery mode. Possibly invalid iBSS. Reset device and try again.\n");
+				error("ERROR: Device did not reconnect in DFU or recovery mode. Possibly invalid iBSS. Reset device and try again.\n");
 			}
 			return -1;
 		}
@@ -495,7 +493,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 		unsigned int nonce_size = 0;
 		int nonce_changed = 0;
 		if (dfu_get_ap_nonce(client, &nonce, &nonce_size) < 0) {
-			logger(LL_ERROR, "Unable to get ApNonce from device!\n");
+			error("ERROR: Unable to get ApNonce from device!\n");
 			return -1;
 		}
 
@@ -510,25 +508,29 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 			free(nonce);
 		}
 
-		logger(LL_INFO, "Nonce: ");
-		logger_dump_hex(LL_INFO, client->nonce, client->nonce_size);
+		info("Nonce: ");
+		int i;
+		for (i = 0; i < client->nonce_size; i++) {
+			info("%02x ", client->nonce[i]);
+		}
+		info("\n");
 
 		if (nonce_changed && !(client->flags & FLAG_CUSTOM)) {
 			// Welcome iOS5. We have to re-request the TSS with our nonce.
 			plist_free(client->tss);
 			if (get_tss_response(client, build_identity, &client->tss) < 0) {
-				logger(LL_ERROR, "Unable to get SHSH blobs for this device\n");
+				error("ERROR: Unable to get SHSH blobs for this device\n");
 				return -1;
 			}
 			if (!client->tss) {
-				logger(LL_ERROR, "can't continue without TSS\n");
+				error("ERROR: can't continue without TSS\n");
 				return -1;
 			}
 			fixup_tss(client->tss);
 		}
 
 		if (irecv_usb_set_configuration(client->dfu->client, 1) < 0) {
-			logger(LL_ERROR, "set configuration failed\n");
+			error("ERROR: set configuration failed\n");
 		}
 
 		mutex_lock(&client->device_event_mutex);
@@ -538,7 +540,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 			// Without this empty policy file & its special signature, iBEC won't start.
 			if (dfu_send_component_and_command(client, build_identity, "Ap,LocalPolicy", "lpolrestore") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send Ap,LocalPolicy to device\n");
+				error("ERROR: Unable to send Ap,LocalPolicy to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -551,17 +553,17 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 				boot_stage = strtoul(value, NULL, 0);
 			}
 			if (boot_stage > 0) {
-				logger(LL_INFO, "iBoot boot-stage=%s\n", value);
+				info("iBoot boot-stage=%s\n", value);
 				free(value);
 				value = NULL;
 				if (boot_stage != 1) {
-					logger(LL_ERROR, "iBoot should be at boot stage 1, continuing anyway...\n");
+					error("ERROR: iBoot should be at boot stage 1, continuing anyway...\n");
 				}
 			}
 
 			if (dfu_send_iboot_stage1_components(client, build_identity) < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send iBoot stage 1 components to device\n");
+				error("ERROR: Unable to send iBoot stage 1 components to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -569,7 +571,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 			if (dfu_send_command(client, "setenv auto-boot false") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send command to device\n");
+				error("ERROR: Unable to send command to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -577,7 +579,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 			if (dfu_send_command(client, "saveenv") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send command to device\n");
+				error("ERROR: Unable to send command to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -585,7 +587,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 			if (dfu_send_command(client, "setenvnp boot-args rd=md0 nand-enable-reformat=1 -progress -restore") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send command to device\n");
+				error("ERROR: Unable to send command to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -593,7 +595,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 			if (dfu_send_component(client, build_identity, "RestoreLogo") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send RestoreDCP to device\n");
+				error("ERROR: Unable to send RestoreDCP to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -601,7 +603,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 			if (dfu_send_command(client, "setpicture 4") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send command to device\n");
+				error("ERROR: Unable to send command to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -609,7 +611,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 
 			if (dfu_send_command(client, "bgcolor 0 0 0") < 0) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to send command to device\n");
+				error("ERROR: Unable to send command to device\n");
 				irecv_close(client->dfu->client);
 				client->dfu->client = NULL;
 				return -1;
@@ -619,7 +621,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 		/* send iBEC */
 		if (dfu_send_component(client, build_identity, "iBEC") < 0) {
 			mutex_unlock(&client->device_event_mutex);
-			logger(LL_ERROR, "Unable to send iBEC to device\n");
+			error("ERROR: Unable to send iBEC to device\n");
 			irecv_close(client->dfu->client);
 			client->dfu->client = NULL;
 			return -1;
@@ -629,7 +631,7 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 			sleep(1);
 			if (irecv_send_command_breq(client->dfu->client, "go", 1) != IRECV_E_SUCCESS) {
 				mutex_unlock(&client->device_event_mutex);
-				logger(LL_ERROR, "Unable to execute iBEC\n");
+				error("ERROR: Unable to execute iBEC\n");
 				return -1;
 			}
 
@@ -640,28 +642,28 @@ int dfu_enter_recovery(struct idevicerestore_client_t* client, plist_t build_ide
 		dfu_client_free(client);
 	}
 
-	logger(LL_DEBUG, "Waiting for device to disconnect...\n");
+	debug("Waiting for device to disconnect...\n");
 	cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 10000);
 	if (client->mode != MODE_UNKNOWN || (client->flags & FLAG_QUIT)) {
 		mutex_unlock(&client->device_event_mutex);
 		if (!(client->flags & FLAG_QUIT)) {
-			logger(LL_ERROR, "Device did not disconnect. Possibly invalid %s. Reset device and try again.\n", (client->build_major > 8) ? "iBEC" : "iBSS");
+			error("ERROR: Device did not disconnect. Possibly invalid %s. Reset device and try again.\n", (client->build_major > 8) ? "iBEC" : "iBSS");
 		}
 		return -1;
 	}
-	logger(LL_DEBUG, "Waiting for device to reconnect in recovery mode...\n");
+	debug("Waiting for device to reconnect in recovery mode...\n");
 	cond_wait_timeout(&client->device_event_cond, &client->device_event_mutex, 10000);
 	if (client->mode != MODE_RECOVERY || (client->flags & FLAG_QUIT)) {
 		mutex_unlock(&client->device_event_mutex);
 		if (!(client->flags & FLAG_QUIT)) {
-			logger(LL_ERROR, "Device did not reconnect in recovery mode. Possibly invalid %s. Reset device and try again.\n", (client->build_major > 8) ? "iBEC" : "iBSS");
+			error("ERROR: Device did not reconnect in recovery mode. Possibly invalid %s. Reset device and try again.\n", (client->build_major > 8) ? "iBEC" : "iBSS");
 		}
 		return -1;
 	}
 	mutex_unlock(&client->device_event_mutex);
 
 	if (recovery_client_new(client) < 0) {
-		logger(LL_ERROR, "Unable to connect to recovery device\n");
+		error("ERROR: Unable to connect to recovery device\n");
 		if (client->recovery->client) {
 			irecv_close(client->recovery->client);
 			client->recovery->client = NULL;
