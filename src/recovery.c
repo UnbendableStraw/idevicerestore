@@ -99,6 +99,7 @@ int recovery_client_new(struct idevicerestore_client_t* client)
 	}
 
 	irecv_event_subscribe(recovery, IRECV_PROGRESS, &recovery_progress_callback, NULL);
+	register_progress('RECV', "Uploading");
 	client->recovery->client = recovery;
 	return 0;
 }
@@ -316,10 +317,8 @@ int recovery_send_component(struct idevicerestore_client_t* client, plist_t buil
 	logger(LL_INFO, "Sending %s (%zu bytes)...\n", component, size);
 
 	// FIXME: Did I do this right????
-	register_progress('RECV', "Uploading");
 	err = irecv_send_buffer(client->recovery->client, data, size, 0);
 	free(data);
-	finalize_progress('RECV');
 	if (err != IRECV_E_SUCCESS) {
 		logger(LL_ERROR, "Unable to send %s component: %s\n", component, irecv_strerror(err));
 		return -1;
