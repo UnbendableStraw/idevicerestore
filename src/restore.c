@@ -1857,7 +1857,7 @@ int restore_send_nor(struct idevicerestore_client_t* client, plist_t message)
 	return 0;
 }
 
-static const char* restore_get_bbfw_fn_for_element(const char* elem, uint32_t bb_chip_id)
+static const char* restore_get_bbfw_fn_for_element(const char* elem)
 {
 	struct bbfw_fn_elem_t {
 		const char* element;
@@ -1888,30 +1888,16 @@ static const char* restore_get_bbfw_fn_for_element(const char* elem, uint32_t bb
 		{ NULL, NULL }
 	};
 
-	struct bbfw_fn_elem_t bbfw_fn_elem_mav25[] = {
-		// Mav25 Firmware files
-		{ "Misc", "multi_image.mbn" },
-		{ "RestoreSBL1", "restorexbl_sc.elf" },
-		{ "SBL1", "xbl_sc.elf" },
-		{ "TME", "signed_firmware_soc_view.elf" },
-		{ NULL, NULL }
-	};
-
-	struct bbfw_fn_elem_t* bbfw_fn_elems = (struct bbfw_fn_elem_t*)bbfw_fn_elem;
-	if (bb_chip_id == 0x1F30E1) {
-		bbfw_fn_elems = (struct bbfw_fn_elem_t*)bbfw_fn_elem_mav25;
-	}
-
 	int i;
-	for (i = 0; bbfw_fn_elems[i].element != NULL; i++) {
-		if (strcmp(bbfw_fn_elems[i].element, elem) == 0) {
-			return bbfw_fn_elems[i].fn;
+	for (i = 0; bbfw_fn_elem[i].element != NULL; i++) {
+		if (strcmp(bbfw_fn_elem[i].element, elem) == 0) {
+			return bbfw_fn_elem[i].fn;
 		}
 	}
 	return NULL;
 }
 
-static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned char* bb_nonce, uint32_t bb_chip_id)
+static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned char* bb_nonce)
 {
 	int res = -1;
 
@@ -1939,6 +1925,7 @@ static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned 
 	struct zip_file* zfile = NULL;
 	struct zip* za = NULL;
 	struct zip_source* zs = NULL;
+	mbn_file* mbn = NULL;
 	fls_file* fls = NULL;
 
 	za = zip_open(bbfwtmp, 0, &zerr);
@@ -1966,7 +1953,7 @@ static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned 
 		if (node && (strcmp(key + (strlen(key) - 5), "-Blob") == 0) && (plist_get_node_type(node) == PLIST_DATA)) {
 			char *ptr = strchr(key, '-');
 			*ptr = '\0';
-			const char* signfn = restore_get_bbfw_fn_for_element(key, bb_chip_id);
+			const char* signfn = restore_get_bbfw_fn_for_element(key);
 			if (!signfn) {
 				logger(LL_ERROR, "can't match element name '%s' to baseband firmware file name.\n", key);
 				goto leave;
@@ -2015,6 +2002,12 @@ static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned 
 					logger(LL_ERROR, "could not parse fls file\n");
 					goto leave;
 				}
+			} else {
+				mbn = mbn_parse(buffer, zstat.size);
+				if (!mbn) {
+					logger(LL_ERROR, "could not parse mbn file\n");
+					goto leave;
+				}
 			}
 			free(buffer);
 			buffer = NULL;
@@ -2026,33 +2019,32 @@ static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned 
 				goto leave;
 			}
 
-			logger(LL_VERBOSE, "Stitching %s\n", signfn);
 			if (is_fls) {
-				if (fls_update_sig_blob(fls, blob, (size_t)blob_size) != 0) {
-					logger(LL_ERROR, "Could not stitch %s\n", signfn);
-					goto leave;
-				}
-				fsize = fls->size;
-				fdata = (unsigned char*)malloc(fsize);
-				if (fdata == NULL)  {
-					logger(LL_ERROR, "out of memory\n");
-					goto leave;
-				}
-				memcpy(fdata, fls->data, fsize);
-				fls_free(fls);
-				fls = NULL;
-			} else if (bb_chip_id == 0x1F30E1) { // Mav25 - Qualcomm Snapdragon X80 5G Modem
-				fdata = mbn_mav25_stitch(buffer, zstat.size, blob, (size_t)blob_size);
-				if (!fdata) {
-					logger(LL_ERROR, "Could not stitch %s\n", signfn);
+				if (fls_update_sig_blob(fls, blob, (unsigned int)blob_size) != 0) {
+					logger(LL_ERROR, "could not sign %s\n", signfn);
 					goto leave;
 				}
 			} else {
-				fdata = mbn_stitch(buffer, zstat.size, blob, (size_t)blob_size);
-				if (!fdata) {
-					logger(LL_ERROR, "Could not stitch %s\n", signfn);
+				if (mbn_update_sig_blob(mbn, blob, (unsigned int)blob_size) != 0) {
+					logger(LL_ERROR, "could not sign %s\n", signfn);
 					goto leave;
 				}
+			}
+
+			fsize = (is_fls ? fls->size : mbn->size);
+			fdata = (unsigned char*)malloc(fsize);
+			if (fdata == NULL)  {
+				logger(LL_ERROR, "out of memory\n");
+				goto leave;
+			}
+			if (is_fls) {
+				memcpy(fdata, fls->data, fsize);
+				fls_free(fls);
+				fls = NULL;
+			} else {
+				memcpy(fdata, mbn->data, fsize);
+				mbn_free(mbn);
+				mbn = NULL;
 			}
 
 			zs = zip_source_buffer(za, fdata, fsize, 1);
@@ -2063,7 +2055,7 @@ static int restore_sign_bbfw(const char* bbfwtmp, plist_t bbtss, const unsigned 
 			}
 
 			if (zip_file_replace(za, zindex, zs, 0) == -1) {
-				logger(LL_ERROR, "Could not update signed '%s' in archive\n", signfn);
+				logger(LL_ERROR, "could not update signed '%s' in archive\n", signfn);
 				goto leave;
 			}
 
@@ -2226,6 +2218,7 @@ leave:
 		zip_unchange_all(za);
 		zip_close(za);
 	}
+	mbn_free(mbn);
 	fls_free(fls);
 	free(buffer);
 
@@ -2359,7 +2352,7 @@ static int restore_send_baseband_data(struct idevicerestore_client_t* client, pl
 		response = NULL;
 	}
 
-	res = restore_sign_bbfw(bbfwtmp, (client->restore->bbtss) ? client->restore->bbtss : response, bb_nonce, bb_chip_id);
+	res = restore_sign_bbfw(bbfwtmp, (client->restore->bbtss) ? client->restore->bbtss : response, bb_nonce);
 	if (res != 0) {
 		goto leave;
 	}
