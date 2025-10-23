@@ -82,6 +82,16 @@ struct idevicerestore_mode_t {
 	const char* string;
 };
 
+struct idevicerestore_entry_t {
+	char* name;
+	char* path;
+	char* filename;
+	char* blob_data;
+	uint32_t blob_size;
+	struct idevicerestore_entry* next;
+	struct idevicerestore_entry* prev;
+};
+
 struct idevicerestore_client_t {
 	int flags;
 	int debug_level;
@@ -105,6 +115,7 @@ struct idevicerestore_client_t {
 	struct restore_client_t* restore;
 	struct recovery_client_t* recovery;
 	irecv_device_t device;
+	struct idevicerestore_entry_t** entries;
 	struct idevicerestore_mode_t* mode;
 	char* version;
 	char* build;
